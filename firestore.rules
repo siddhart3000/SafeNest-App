@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isFamilyMember(familyId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid));
+    }
+
+    // Users can only read/write their own document
+    match /users/{userId} {
+      allow read, write: if isSelf(userId);
+    }
+
+    // Family collections
+    match /families/{familyId} {
+      // Family members can read the family document
+      allow read: if isFamilyMember(familyId);
+
+      // Creation allowed for any authenticated user
+      allow create: if isSignedIn();
+
+      // Updates & deletes limited to the family creator
+      allow update, delete: if isSignedIn()
+        && resource.data.createdBy == request.auth.uid;
+
+      // Members subcollection
+      match /members/{memberId} {
+        // Any family member can read all members
+        allow read: if isFamilyMember(familyId);
+
+        // Members can create/update/delete only their own member doc
+        allow create, update, delete: if isSignedIn()
+          && request.auth.uid == memberId;
+      }
+    }
+  }
+}
+
