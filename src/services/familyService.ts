@@ -117,18 +117,28 @@ export const subscribeToFamilyMembers = (
       const members: FamilyMember[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data() as any;
-        const location = data.lastLocation || data.currentLocation;
-        members.push({
+        const location = data?.lastLocation || data?.currentLocation || null;
+
+        const safeMember: FamilyMember = {
           id: docSnap.id,
-          name: data.name ?? "Member",
-          role: data.role ?? null,
-          photoURL: data.photoURL ?? null,
-          latitude: location?.latitude ?? null,
-          longitude: location?.longitude ?? null,
-          batteryLevel: data.batteryLevel ?? null,
-          lastOnline: data.lastOnline ?? data.updatedAt ?? null,
-          isOnline: data.isOnline ?? false,
-        });
+          name: data?.name ?? "Member",
+          role: data?.role ?? null,
+          photoURL: data?.photoURL ?? null,
+          latitude:
+            location && typeof location.latitude === "number"
+              ? location.latitude
+              : null,
+          longitude:
+            location && typeof location.longitude === "number"
+              ? location.longitude
+              : null,
+          batteryLevel:
+            typeof data?.batteryLevel === "number" ? data.batteryLevel : null,
+          lastOnline: data?.lastOnline ?? data?.updatedAt ?? null,
+          isOnline: !!data?.isOnline,
+        };
+
+        members.push(safeMember);
       });
       callback(members);
     },

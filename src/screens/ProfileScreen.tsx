@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,20 +46,22 @@ export default function ProfileScreen({ familyId, onBack }: ProfileScreenProps) 
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
+  const mountedRef = useRef(true);
+
   useEffect(() => {
     if (!user) return;
-    let mounted = true;
+    mountedRef.current = true;
 
     const bootstrap = async () => {
       try {
         const fallbackName = user.email?.split("@")[0] ?? "Member";
         const initial = await loadInitialProfile(user.uid, familyId, fallbackName);
-        if (!mounted) return;
+        if (!mountedRef.current) return;
         setEditable(initial);
       } catch (error) {
         Alert.alert("Profile", getErrorMessage(error, "Unable to load profile."));
       } finally {
-        if (mounted) {
+        if (mountedRef.current) {
           setLoading(false);
         }
       }
@@ -68,12 +70,12 @@ export default function ProfileScreen({ familyId, onBack }: ProfileScreenProps) 
     bootstrap();
 
     const unsubscribe = subscribeToUserProfile(user.uid, (profile) => {
-      if (!mounted) return;
+      if (!mountedRef.current) return;
       setRealtime(profile);
     });
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       unsubscribe();
     };
   }, [familyId, user]);

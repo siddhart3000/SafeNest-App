@@ -13,22 +13,45 @@ import {
   updateUserRealtimeStatus,
 } from "./src/services/userStatusService";
 import { colors } from "./src/theme/theme";
-import { logError } from "./src/utils/errorHandler";
+import { GlobalErrorBoundary } from "./src/components/GlobalErrorBoundary";
+import { safeAsync } from "./src/utils/safeAsync";
 
-export default function App() {
+declare const ErrorUtils: any;
+
+if (!__DEV__) {
+  const defaultHandler = ErrorUtils?.getGlobalHandler?.();
+  ErrorUtils?.setGlobalHandler?.((error: any, isFatal?: boolean) => {
+    console.log("Fatal JS error:", error);
+    if (typeof defaultHandler === "function") {
+      defaultHandler(error, isFatal);
+    }
+  });
+}
+
+function SafeNestApp() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | undefined;
+    let isMounted = true;
 
     const unsubscribeAuth = subscribeToAuthChanges((currentUser) => {
+      setLoading(true);
+
+      if (!isMounted) {
+        return;
+      }
+
       setUser(currentUser);
 
       if (currentUser) {
         unsubscribeProfile?.();
         unsubscribeProfile = subscribeToUserProfile(currentUser.uid, (doc) => {
+          if (!isMounted) {
+            return;
+          }
           setProfile(doc);
           setLoading(false);
         });
@@ -39,6 +62,7 @@ export default function App() {
     });
 
     return () => {
+      isMounted = false;
       unsubscribeAuth();
       unsubscribeProfile?.();
     };
@@ -46,30 +70,6 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
-
-    let cancelled = false;
-
-    const bootstrapStatus = async () => {
-      try {
-        const [batteryLevel, location] = await Promise.all([
-          getBatteryLevel(user.uid),
-          getCurrentLocation(),
-        ]);
-
-        if (cancelled) return;
-
-        await updateUserRealtimeStatus({
-          uid: user.uid,
-          familyId: profile?.familyId ?? null,
-          batteryLevel: batteryLevel ?? undefined,
-          location: location ?? undefined,
-        });
-      } catch (error) {
-        logError("App.bootstrapStatus", error);
-      }
-    };
-
-    bootstrapStatus();
 
     const unsubscribeBattery = subscribeBatteryUpdates(user.uid);
 
@@ -79,14 +79,15 @@ export default function App() {
       if (!user) return;
 
       const movingToBackground =
-        currentState === "active" && (nextState === "background" || nextState === "inactive");
+        currentState === "active" &&
+        (nextState === "background" || nextState === "inactive");
       const movingToForeground =
         (currentState === "background" || currentState === "inactive") &&
         nextState === "active";
 
       currentState = nextState;
 
-      try {
+      await safeAsync("App.handleAppStateChange", async () => {
         if (movingToBackground) {
           await markUserOffline(user.uid, profile?.familyId ?? null);
         }
@@ -104,15 +105,12 @@ export default function App() {
             location: location ?? undefined,
           });
         }
-      } catch (error) {
-        logError("App.handleAppStateChange", error);
-      }
+      });
     };
 
     const subscription = AppState.addEventListener("change", handleAppStateChange);
 
     return () => {
-      cancelled = true;
       subscription.remove();
       unsubscribeBattery();
     };
@@ -137,9 +135,32 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  if (!profile?.familyId) {
+  if (!profile) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: colors.background,
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!profile.familyId) {
     return <FamilySetupScreen />;
   }
 
   return <HomeScreen familyId={profile.familyId} />;
+}
+
+export default function App() {
+  return (
+    <GlobalErrorBoundary>
+      <SafeNestApp />
+    </GlobalErrorBoundary>
+  );
 }

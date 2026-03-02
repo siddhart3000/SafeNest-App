@@ -7,6 +7,24 @@ export interface Coordinates {
   longitude: number;
 }
 
+let backgroundTrackingStarted = false;
+let backgroundTrackingStarting = false;
+
+const ensureForegroundPermission = async (): Promise<boolean> => {
+  try {
+    const current = await Location.getForegroundPermissionsAsync();
+    if (current.status === "granted") {
+      return true;
+    }
+
+    const requested = await Location.requestForegroundPermissionsAsync();
+    return requested.status === "granted";
+  } catch (error) {
+    logError("location.ensureForegroundPermission", error);
+    return false;
+  }
+};
+
 export const requestLocationPermissions = async (): Promise<{
   granted: boolean;
   canBackground: boolean;
@@ -36,7 +54,7 @@ export const isLocationServicesEnabled = async (): Promise<boolean> => {
 
 export const getCurrentLocation = async (): Promise<Coordinates | null> => {
   try {
-    const { granted } = await requestLocationPermissions();
+    const granted = await ensureForegroundPermission();
     if (!granted) return null;
 
     const location = await Location.getCurrentPositionAsync({
@@ -54,21 +72,27 @@ export const getCurrentLocation = async (): Promise<Coordinates | null> => {
 };
 
 export const startBackgroundTracking = async (): Promise<void> => {
+  if (backgroundTrackingStarted || backgroundTrackingStarting) {
+    return;
+  }
+
+  backgroundTrackingStarting = true;
+
   try {
-    const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-    if (fgStatus !== "granted") {
+    const alreadyRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+    if (alreadyRunning) {
+      backgroundTrackingStarted = true;
+      return;
+    }
+
+    const { granted, canBackground } = await requestLocationPermissions();
+    if (!granted) {
       logError("location.startBackgroundTracking", "Foreground permission denied");
       return;
     }
 
-    const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-    if (bgStatus !== "granted") {
+    if (!canBackground) {
       logError("location.startBackgroundTracking", "Background permission denied");
-      return;
-    }
-
-    const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
-    if (isRunning) {
       return;
     }
 
@@ -81,17 +105,27 @@ export const startBackgroundTracking = async (): Promise<void> => {
         notificationBody: "Your location is being shared with your family.",
       },
     });
+
+    backgroundTrackingStarted = true;
   } catch (error) {
     logError("location.startBackgroundTracking", error);
+  } finally {
+    backgroundTrackingStarting = false;
   }
 };
 
 export const stopBackgroundTracking = async (): Promise<void> => {
   try {
     const isRunning = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
-    if (!isRunning) return;
+    if (!isRunning) {
+      backgroundTrackingStarted = false;
+      backgroundTrackingStarting = false;
+      return;
+    }
 
     await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    backgroundTrackingStarted = false;
+    backgroundTrackingStarting = false;
   } catch (error) {
     logError("location.stopBackgroundTracking", error);
   }

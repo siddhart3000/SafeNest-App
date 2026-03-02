@@ -1,66 +1,49 @@
-import Constants from "expo-constants";
-import { logError } from "../utils/errorHandler";
-
 export interface WeatherData {
   temperature: number;
+  description: string;
   humidity: number;
   windSpeedKmh: number;
   rainProbability: number;
-  description: string;
-  icon: string;
 }
 
-const getApiKey = (): string | null => {
-  const embeddedKey =
-    process.env.EXPO_PUBLIC_WEATHER_API_KEY ??
-    (Constants.expoConfig?.extra as any)?.weatherApiKey ??
-    null;
-  return embeddedKey && embeddedKey.length > 0 ? embeddedKey : null;
-};
-
-export const fetchWeatherByCoordinates = async (
+export async function fetchWeatherByCoordinates(
   latitude: number,
   longitude: number
-): Promise<WeatherData | null> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    logError("weather.fetchWeatherByCoordinates", "Missing EXPO_PUBLIC_WEATHER_API_KEY");
-    return null;
+): Promise<WeatherData> {
+  if (
+    typeof latitude !== "number" ||
+    typeof longitude !== "number" ||
+    Number.isNaN(latitude) ||
+    Number.isNaN(longitude)
+  ) {
+    throw new Error("Invalid coordinates for weather");
   }
 
-  try {
-    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&units=metric&appid=${apiKey}`;
-    const response = await fetch(url);
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+    `&current=temperature_2m,relative_humidity_2m,wind_speed_10m` +
+    `&hourly=precipitation_probability`;
 
-    if (!response.ok) {
-      throw new Error(`Weather API error: ${response.status}`);
-    }
+  const response = await fetch(url);
 
-    const json = await response.json();
-
-    const temperature = json.main?.temp ?? 0;
-    const humidity = json.main?.humidity ?? 0;
-    const windSpeedMs = json.wind?.speed ?? 0;
-    const rainProbability =
-      json.rain?.["1h"] != null ? Math.min(json.rain["1h"] * 100, 100) : 0;
-    const description = json.weather?.[0]?.description ?? "Unknown";
-    const icon = json.weather?.[0]?.icon ?? "01d";
-
-    const windSpeedKmh = windSpeedMs * 3.6;
-
-    return {
-      temperature,
-      humidity,
-      windSpeedKmh,
-      rainProbability,
-      description,
-      icon,
-    };
-  } catch (error) {
-    logError("weather.fetchWeatherByCoordinates", error);
-    return null;
+  if (!response.ok) {
+    throw new Error("Weather API request failed");
   }
-};
+
+  const json = await response.json();
+
+  if (!json?.current) {
+    throw new Error("Malformed weather response");
+  }
+
+  return {
+    temperature: Number(json.current.temperature_2m ?? 0),
+    description: "Current conditions",
+    humidity: Number(json.current.relative_humidity_2m ?? 0),
+    windSpeedKmh: Number(json.current.wind_speed_10m ?? 0),
+    rainProbability: Number(json.hourly?.precipitation_probability?.[0] ?? 0),
+  };
+}
 
 export const getWeatherRecommendation = (weather: WeatherData | null): string => {
   if (!weather) return "Weather data unavailable";

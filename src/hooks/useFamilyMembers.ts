@@ -19,15 +19,19 @@ export const useFamilyMembers = (familyId: string | null): UseFamilyMembersResul
       return;
     }
 
+    let isMounted = true;
+
     setLoading(true);
     setError(null);
 
     const unsubscribe = subscribeToFamilyMembers(familyId, (next) => {
+      if (!isMounted) return;
       setMembers(next);
       setLoading(false);
     });
 
     return () => {
+      isMounted = false;
       unsubscribe();
     };
   }, [familyId]);

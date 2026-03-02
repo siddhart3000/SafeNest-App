@@ -4,6 +4,7 @@ import {
   getWeatherRecommendation,
   WeatherData,
 } from "../services/weatherService";
+import { logError } from "../utils/errorHandler";
 
 interface Coords {
   latitude: number;
@@ -16,6 +17,15 @@ interface UseWeatherResult {
   loading: boolean;
 }
 
+const isValidCoordinate = (lat: any, lng: any): boolean => {
+  return (
+    typeof lat === "number" &&
+    typeof lng === "number" &&
+    !Number.isNaN(lat) &&
+    !Number.isNaN(lng)
+  );
+};
+
 export const useWeather = (coords: Coords | null): UseWeatherResult => {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [recommendation, setRecommendation] = useState<string>(
@@ -23,11 +33,21 @@ export const useWeather = (coords: Coords | null): UseWeatherResult => {
   );
   const [loading, setLoading] = useState(false);
   const debounceTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    if (!coords) {
-      setWeather(null);
-      setRecommendation("Select a member to see their local weather.");
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      if (debounceTimeout.current) {
+        clearTimeout(debounceTimeout.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mountedRef.current) {
       return;
     }
 
@@ -35,12 +55,31 @@ export const useWeather = (coords: Coords | null): UseWeatherResult => {
       clearTimeout(debounceTimeout.current);
     }
 
+    if (!coords || !isValidCoordinate(coords.latitude, coords.longitude)) {
+      if (!mountedRef.current) {
+        return;
+      }
+
+      setWeather(null);
+      setRecommendation("Select a member to see their local weather.");
+      return;
+    }
+
     debounceTimeout.current = setTimeout(async () => {
-      setLoading(true);
-      const data = await fetchWeatherByCoordinates(coords.latitude, coords.longitude);
-      setWeather(data);
-      setRecommendation(getWeatherRecommendation(data));
-      setLoading(false);
+      try {
+        if (!mountedRef.current) return;
+        setLoading(true);
+        const data = await fetchWeatherByCoordinates(coords.latitude, coords.longitude);
+        if (!mountedRef.current) return;
+        setWeather(data);
+        setRecommendation(getWeatherRecommendation(data));
+      } catch (error) {
+        logError("useWeather.fetch", error);
+      } finally {
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+      }
     }, 800);
 
     return () => {
@@ -52,4 +91,5 @@ export const useWeather = (coords: Coords | null): UseWeatherResult => {
 
   return { weather, recommendation, loading };
 };
+
 

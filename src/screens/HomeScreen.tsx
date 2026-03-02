@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -9,10 +9,18 @@ import {
 } from "react-native";
 import MapScreen from "./MapScreen";
 import ProfileScreen from "./ProfileScreen";
-import { startBackgroundTracking, stopBackgroundTracking } from "../services/locationService";
-import { logout } from "../services/authService";
+import {
+  Coordinates,
+  getCurrentLocation,
+  startBackgroundTracking,
+  stopBackgroundTracking,
+} from "../services/locationService";
+import { getCurrentUser, logout } from "../services/authService";
+import { getBatteryLevel } from "../services/deviceService";
+import { updateUserRealtimeStatus } from "../services/userStatusService";
 import { colors, radius, spacing, typography } from "../theme/theme";
 import { getErrorMessage } from "../utils/errorHandler";
+import { safeAsync } from "../utils/safeAsync";
 
 interface HomeScreenProps {
   familyId: string;
@@ -21,26 +29,75 @@ interface HomeScreenProps {
 export default function HomeScreen({ familyId }: HomeScreenProps) {
   const [tracking, setTracking] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [bootCompleted, setBootCompleted] = useState(false);
+  const [initialCoords, setInitialCoords] = useState<Coordinates | null>(null);
   const [showProfile, setShowProfile] = useState(false);
 
+  const mountedRef = useRef(true);
+
+  const hasValidCoords = (coords: Coordinates | null): coords is Coordinates => {
+    return (
+      !!coords &&
+      typeof coords.latitude === "number" &&
+      typeof coords.longitude === "number" &&
+      !Number.isNaN(coords.latitude) &&
+      !Number.isNaN(coords.longitude)
+    );
+  };
+
   useEffect(() => {
-    const bootstrap = async () => {
-      try {
+    mountedRef.current = true;
+
+    const initializeHome = async () => {
+      const user = getCurrentUser();
+      if (!user) {
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+        return;
+      }
+
+      await safeAsync("Home.startBackgroundTracking", async () => {
         await startBackgroundTracking();
-        setTracking(true);
-      } catch (error) {
-        Alert.alert("Location tracking", getErrorMessage(error, "Unable to start tracking."));
-      } finally {
+        if (!mountedRef.current) return;
+        if (mountedRef.current) {
+          setTracking(true);
+        }
+      });
+
+      await safeAsync("Home.bootstrapRealtimeStatus", async () => {
+        const [batteryLevel, location] = await Promise.all([
+          getBatteryLevel(user.uid),
+          getCurrentLocation(),
+        ]);
+
+        if (!mountedRef.current) return;
+
+        if (hasValidCoords(location)) {
+          setInitialCoords(location);
+        }
+
+        await updateUserRealtimeStatus({
+          uid: user.uid,
+          familyId,
+          batteryLevel: batteryLevel ?? undefined,
+          location: location ?? undefined,
+        });
+      });
+
+      if (mountedRef.current) {
+        setBootCompleted(true);
         setLoading(false);
       }
     };
 
-    bootstrap();
+    safeAsync("Home.initializeHome", initializeHome);
 
     return () => {
+      mountedRef.current = false;
       stopBackgroundTracking().catch(() => undefined);
     };
-  }, []);
+  }, [familyId]);
 
   const handleLogout = async () => {
     try {
@@ -51,7 +108,7 @@ export default function HomeScreen({ familyId }: HomeScreenProps) {
     }
   };
 
-  if (loading) {
+  if (loading || !bootCompleted || !hasValidCoords(initialCoords)) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -68,7 +125,7 @@ export default function HomeScreen({ familyId }: HomeScreenProps) {
 
   return (
     <View style={styles.container}>
-      <MapScreen familyId={familyId} />
+      <MapScreen familyId={familyId} bootCompleted={bootCompleted} />
 
       <View style={styles.topBar}>
         <Text style={styles.logo}>SafeNest</Text>

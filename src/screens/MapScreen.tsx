@@ -14,8 +14,18 @@ import {
   isOnlineFromLastOnline,
 } from "../utils/formatters";
 
+const isValidCoordinate = (lat: any, lng: any): boolean => {
+  return (
+    typeof lat === "number" &&
+    typeof lng === "number" &&
+    !Number.isNaN(lat) &&
+    !Number.isNaN(lng)
+  );
+};
+
 interface MapScreenProps {
   familyId: string;
+  bootCompleted: boolean;
 }
 
 const DARK_MAP_STYLE = [
@@ -29,10 +39,11 @@ const DARK_MAP_STYLE = [
   { featureType: "transit", stylers: [{ visibility: "off" }] },
 ];
 
-export default function MapScreen({ familyId }: MapScreenProps) {
+export default function MapScreen({ familyId, bootCompleted }: MapScreenProps) {
   const { members, loading } = useFamilyMembers(familyId);
   const [selectedMember, setSelectedMember] = useState<FamilyMember | null>(null);
   const mapRef = useRef<MapView | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     if (!selectedMember && members.length > 0) {
@@ -41,29 +52,41 @@ export default function MapScreen({ familyId }: MapScreenProps) {
   }, [members, selectedMember]);
 
   useEffect(() => {
-    if (!selectedMember || !selectedMember.latitude || !selectedMember.longitude) return;
+    if (!mapReady) return;
+    if (!selectedMember) return;
+    if (!isValidCoordinate(selectedMember.latitude, selectedMember.longitude)) return;
 
     const region: Region = {
-      latitude: selectedMember.latitude,
-      longitude: selectedMember.longitude,
+      latitude: selectedMember.latitude as number,
+      longitude: selectedMember.longitude as number,
       latitudeDelta: 0.01,
       longitudeDelta: 0.01,
     };
 
-    mapRef.current?.animateToRegion(region, 500);
-  }, [selectedMember?.id, selectedMember?.latitude, selectedMember?.longitude]);
+    try {
+      mapRef.current?.animateToRegion(region, 500);
+    } catch (error) {
+      console.log("Map animation error:", error);
+    }
+  }, [mapReady, selectedMember?.id]);
 
   const selectedCoords =
-    selectedMember && selectedMember.latitude && selectedMember.longitude
+    selectedMember &&
+    isValidCoordinate(selectedMember.latitude, selectedMember.longitude)
       ? {
-          latitude: selectedMember.latitude,
-          longitude: selectedMember.longitude,
+          latitude: selectedMember.latitude as number,
+          longitude: selectedMember.longitude as number,
         }
       : null;
 
   const { weather, recommendation, loading: weatherLoading } = useWeather(selectedCoords);
 
-  if (loading) {
+  if (
+    loading ||
+    !bootCompleted ||
+    !selectedMember ||
+    !isValidCoordinate(selectedMember.latitude, selectedMember.longitude)
+  ) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -83,15 +106,33 @@ export default function MapScreen({ familyId }: MapScreenProps) {
         style={StyleSheet.absoluteFill}
         customMapStyle={DARK_MAP_STYLE}
         showsUserLocation
-        initialRegion={{
-          latitude: members[0]?.latitude || 30.7333,
-          longitude: members[0]?.longitude || 76.7794,
-          latitudeDelta: 0.04,
-          longitudeDelta: 0.04,
-        }}
+        onMapReady={() => setMapReady(true)}
+        initialRegion={((): Region => {
+          const firstWithValidCoords = members.find((member) =>
+            isValidCoordinate(member.latitude, member.longitude)
+          );
+
+          if (firstWithValidCoords) {
+            return {
+              latitude: firstWithValidCoords.latitude as number,
+              longitude: firstWithValidCoords.longitude as number,
+              latitudeDelta: 0.04,
+              longitudeDelta: 0.04,
+            };
+          }
+
+          return {
+            latitude: 30.7333,
+            longitude: 76.7794,
+            latitudeDelta: 0.04,
+            longitudeDelta: 0.04,
+          };
+        })()}
       >
         {members.map((member) => {
-          if (!member.latitude || !member.longitude) return null;
+          if (!isValidCoordinate(member.latitude, member.longitude)) {
+            return null;
+          }
           const online =
             member.isOnline || isOnlineFromLastOnline(member.lastOnline);
 
@@ -99,8 +140,8 @@ export default function MapScreen({ familyId }: MapScreenProps) {
             <Marker
               key={member.id}
               coordinate={{
-                latitude: member.latitude,
-                longitude: member.longitude,
+                latitude: member.latitude as number,
+                longitude: member.longitude as number,
               }}
               onPress={() => setSelectedMember(member)}
             >
