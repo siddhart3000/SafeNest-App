@@ -12,7 +12,7 @@ It enables families to monitor live location, device health, and weather-based s
 👉 [https://github.com/siddhart3000/SafeNest-App](https://github.com/siddhart3000/SafeNest-App)
 
 **Expo Project**
-👉 [https://expo.dev/accounts/siddharth_singhgkp/projects/SafeNest](https://expo.dev/accounts/siddharth_singhgkp/projects/SafeNest)
+👉 [https://expo.dev/accounts/siddharth_singhgkp/projects/SafeNest](https://expo.dev/accounts/siddharth_singhgkp/projects/SafeNest/builds/7646cd64-b6d9-48c6-bfee-3af61682ae5f)
 
 ---
 
