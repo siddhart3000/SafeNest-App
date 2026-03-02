@@ -4,7 +4,7 @@ import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDUuW10TA2jJ_WcUPxV8MV0o6HZ3ACo1HM",
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,,
   authDomain: "safenest-dcffb.firebaseapp.com",
   projectId: "safenest-dcffb",
   storageBucket: "safenest-dcffb.firebasestorage.app",
